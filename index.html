@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>シフト管理カレンダー</title>
+  <style>
+    body {
+      font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+      margin: 20px;
+      background-color: #f9f9f9;
+      color: #333;
+    }
+    #calendar-container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .action-bar {
+      text-align: right;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    button:hover {
+      background-color: #f0f0f0;
+    }
+    #copy-btn {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+    }
+    #copy-btn:hover {
+      background-color: #45a049;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      text-align: center;
+      padding: 15px 5px;
+      vertical-align: top;
+      height: 80px;
+    }
+    th {
+      background-color: #f5f5f5;
+      height: auto;
+      padding: 10px 5px;
+    }
+    td {
+      cursor: pointer;
+      position: relative;
+    }
+    td:hover {
+      background-color: #fafafa;
+    }
+    /* シフトのバッジスタイル */
+    .shift-badge {
+      display: block;
+      margin-top: 8px;
+      padding: 4px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      font-weight: bold;
+    }
+    .shift-day { background-color: #ffe0b2; color: #e65100; }    /* 昼: オレンジ系 */
+    .shift-night { background-color: #c5cae9; color: #1a237e; }  /* 夜: ブルー系 */
+    .shift-allday { background-color: #ffcdd2; color: #b71c1c; } /* 1日: レッド系 */
+
+    /* モーダル（シフト選択画面）のスタイル */
+    #modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5);
+      justify-content: center;
+      align-items: center;
+    }
+    #modal {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      width: 300px;
+    }
+    #modal h3 { margin-top: 0; }
+    .modal-btn {
+      display: block;
+      width: 100%;
+      margin: 10px 0;
+      padding: 10px;
+      font-size: 1em;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+    }
+    .btn-day { background-color: #ff9800; }
+    .btn-night { background-color: #3f51b5; }
+    .btn-allday { background-color: #f44336; }
+    .btn-clear { background-color: #9e9e9e; }
+    .btn-cancel { background-color: #fff; color: #333; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+
+  <div id="calendar-container">
+    <div class="header">
+      <button id="prev-month">◀ 前の月</button>
+      <h2 id="month-year"></h2>
+      <button id="next-month">次の月 ▶</button>
+    </div>
+    
+    <div class="action-bar">
+      <button id="copy-btn">📋 シフトをテキストでコピー</button>
+    </div>
+
+    <table id="calendar">
+      <thead>
+        <tr>
+          <th>日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th>
+        </tr>
+      </thead>
+      <tbody id="calendar-body">
+        </tbody>
+    </table>
+  </div>
+
+  <div id="modal-overlay">
+    <div id="modal">
+      <h3 id="modal-date-display">日付</h3>
+      <p>シフトを選択してください</p>
+      <button class="modal-btn btn-day" onclick="setShift('day')">昼</button>
+      <button class="modal-btn btn-night" onclick="setShift('night')">夜</button>
+      <button class="modal-btn btn-allday" onclick="setShift('allday')">1日</button>
+      <button class="modal-btn btn-clear" onclick="setShift(null)">シフトを消去</button>
+      <button class="modal-btn btn-cancel" onclick="closeModal()">キャンセル</button>
+    </div>
+  </div>
+
+  <script>
+    const calendarBody = document.getElementById('calendar-body');
+    const monthYearDisplay = document.getElementById('month-year');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalDateDisplay = document.getElementById('modal-date-display');
+
+    let currentDate = new Date();
+    let selectedDateKey = null;
+
+    // ★変更点①: ページを開いたときに保存されたデータを読み込む★
+    // localStorageにデータがあればそれを使い、無ければ空のオブジェクト {} を用意します。
+    let shiftData = JSON.parse(localStorage.getItem('myShiftData')) || {};
+
+    function renderCalendar(date) {
+      calendarBody.innerHTML = '';
+      
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      
+      monthYearDisplay.textContent = `${year}年 ${month + 1}月`;
+
+      const firstDayIndex = new Date(year, month, 1).getDay();
+      const lastDay = new Date(year, month + 1, 0).getDate();
+
+      let row = document.createElement('tr');
+
+      for (let i = 0; i < firstDayIndex; i++) {
+        row.appendChild(document.createElement('td'));
+      }
+
+      for (let day = 1; day <= lastDay; day++) {
+        if (row.children.length === 7) {
+          calendarBody.appendChild(row);
+          row = document.createElement('tr');
+        }
+
+        const cell = document.createElement('td');
+        const dateKey = `${year}-${month + 1}-${day}`;
+        
+        cell.innerHTML = `<div>${day}</div>`;
+        
+        if (shiftData[dateKey]) {
+          const shiftType = shiftData[dateKey];
+          const badge = document.createElement('div');
+          badge.classList.add('shift-badge');
+          
+          if (shiftType === 'day') {
+            badge.textContent = '昼';
+            badge.classList.add('shift-day');
+          } else if (shiftType === 'night') {
+            badge.textContent = '夜';
+            badge.classList.add('shift-night');
+          } else if (shiftType === 'allday') {
+            badge.textContent = '1日';
+            badge.classList.add('shift-allday');
+          }
+          cell.appendChild(badge);
+        }
+
+        cell.addEventListener('click', () => openModal(dateKey, year, month + 1, day));
+        row.appendChild(cell);
+      }
+
+      while (row.children.length < 7) {
+        row.appendChild(document.createElement('td'));
+      }
+      calendarBody.appendChild(row);
+    }
+
+    function openModal(dateKey, year, month, day) {
+      selectedDateKey = dateKey;
+      modalDateDisplay.textContent = `${year}年${month}月${day}日`;
+      modalOverlay.style.display = 'flex';
+    }
+
+    function closeModal() {
+      modalOverlay.style.display = 'none';
+      selectedDateKey = null;
+    }
+
+    function setShift(shiftType) {
+      if (shiftType) {
+        shiftData[selectedDateKey] = shiftType;
+      } else {
+        delete shiftData[selectedDateKey];
+      }
+
+      // ★変更点②: シフトを変更・消去した時に自動で保存する★
+      localStorage.setItem('myShiftData', JSON.stringify(shiftData));
+
+      closeModal();
+      renderCalendar(currentDate);
+    }
+
+    // テキストでコピーする処理
+    document.getElementById('copy-btn').addEventListener('click', () => {
+      const targetYear = currentDate.getFullYear();
+      const targetMonth = currentDate.getMonth() + 1;
+
+      let dayShifts = [];
+      let nightShifts = [];
+      let alldayShifts = [];
+
+      for (const [dateKey, shiftType] of Object.entries(shiftData)) {
+        const [y, m, d] = dateKey.split('-').map(Number);
+        
+        if (y === targetYear && m === targetMonth) {
+          if (shiftType === 'day') dayShifts.push(d);
+          if (shiftType === 'night') nightShifts.push(d);
+          if (shiftType === 'allday') alldayShifts.push(d);
+        }
+      }
+
+      dayShifts.sort((a, b) => a - b);
+      nightShifts.sort((a, b) => a - b);
+      alldayShifts.sort((a, b) => a - b);
+
+      let textParts = [];
+      if (dayShifts.length > 0) textParts.push(`昼${dayShifts.join(',')}`);
+      if (nightShifts.length > 0) textParts.push(`夜${nightShifts.join(',')}`);
+      if (alldayShifts.length > 0) textParts.push(`1日${alldayShifts.join(',')}`);
+
+      const resultText = textParts.join(' ');
+
+      if (resultText === '') {
+        alert(`${targetMonth}月のシフトは登録されていません。`);
+        return;
+      }
+
+      navigator.clipboard.writeText(resultText).then(() => {
+        alert(`以下のテキストをコピーしました！\n\n${resultText}`);
+      }).catch(err => {
+        alert('コピーに失敗しました。');
+        console.error(err);
+      });
+    });
+
+    document.getElementById('prev-month').addEventListener('click', () => {
+      currentDate.setMonth(currentDate.getMonth() - 1);
+      renderCalendar(currentDate);
+    });
+
+    document.getElementById('next-month').addEventListener('click', () => {
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      renderCalendar(currentDate);
+    });
+
+    renderCalendar(currentDate);
+  </script>
+</body>
+</html>
