@@ -78,14 +78,52 @@
       margin-top: 8px;
       padding: 4px;
       border-radius: 4px;
-      font-size: 0.85em;
+      font-size: 0.8em;
       font-weight: bold;
     }
     .shift-day { background-color: #ffe0b2; color: #e65100; }    /* 昼: オレンジ系 */
     .shift-night { background-color: #c5cae9; color: #1a237e; }  /* 夜: ブルー系 */
     .shift-allday { background-color: #ffcdd2; color: #b71c1c; } /* 1日: レッド系 */
+    .shift-off { background-color: #e0e0e0; color: #424242; }    /* 空け: グレー系 */
 
-    /* モーダル（シフト選択画面）のスタイル */
+    /* 給与計算エリアのスタイル */
+    .salary-calc-box {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f0f8ff;
+      border-radius: 8px;
+      border: 1px solid #b3d4ff;
+    }
+    .salary-calc-box h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 1.1em;
+      color: #0056b3;
+    }
+    .input-group {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .input-group label {
+      font-size: 0.9em;
+    }
+    .input-group input {
+      width: 60px;
+      padding: 4px;
+      text-align: right;
+    }
+    .salary-result {
+      margin-top: 15px;
+      font-size: 1.2em;
+      font-weight: bold;
+      text-align: right;
+      color: #d32f2f;
+    }
+
+    /* モーダルのスタイル */
     #modal-overlay {
       display: none;
       position: fixed;
@@ -93,6 +131,7 @@
       background: rgba(0,0,0,0.5);
       justify-content: center;
       align-items: center;
+      z-index: 100;
     }
     #modal {
       background: #fff;
@@ -105,7 +144,7 @@
     .modal-btn {
       display: block;
       width: 100%;
-      margin: 10px 0;
+      margin: 8px 0;
       padding: 10px;
       font-size: 1em;
       border: none;
@@ -115,7 +154,8 @@
     .btn-day { background-color: #ff9800; }
     .btn-night { background-color: #3f51b5; }
     .btn-allday { background-color: #f44336; }
-    .btn-clear { background-color: #9e9e9e; }
+    .btn-off { background-color: #757575; }
+    .btn-clear { background-color: #bdbdbd; }
     .btn-cancel { background-color: #fff; color: #333; border: 1px solid #ccc; }
   </style>
 </head>
@@ -139,10 +179,29 @@
         </tr>
       </thead>
       <tbody id="calendar-body">
-        </tbody>
+        <!-- カレンダーの中身がここに生成されます -->
+      </tbody>
     </table>
+
+    <!-- 追加: 給与見込み計算エリア -->
+    <div class="salary-calc-box">
+      <h3>💰 表示月の給与見込み</h3>
+      <div class="input-group">
+        <label>基本時給: <input type="number" id="hourly-wage" value="1000" step="10"> 円</label>
+      </div>
+      <div class="input-group" style="font-size: 0.85em;">
+        <label>昼の勤務: <input type="number" id="day-hours" value="4" step="0.5"> h</label> / 
+        <label>夜の勤務: <input type="number" id="night-hours" value="4" step="0.5"> h</label> / 
+        <label>1日の勤務: <input type="number" id="allday-hours" value="8" step="0.5"> h</label>
+      </div>
+      <div class="salary-result">
+        予想月給: <span id="monthly-salary">0</span> 円
+      </div>
+    </div>
+
   </div>
 
+  <!-- シフト選択モーダル -->
   <div id="modal-overlay">
     <div id="modal">
       <h3 id="modal-date-display">日付</h3>
@@ -150,7 +209,8 @@
       <button class="modal-btn btn-day" onclick="setShift('day')">昼</button>
       <button class="modal-btn btn-night" onclick="setShift('night')">夜</button>
       <button class="modal-btn btn-allday" onclick="setShift('allday')">1日</button>
-      <button class="modal-btn btn-clear" onclick="setShift(null)">シフトを消去</button>
+      <button class="modal-btn btn-off" onclick="setShift('off')">空けておく (休)</button>
+      <button class="modal-btn btn-clear" onclick="setShift(null)">入力を消去</button>
       <button class="modal-btn btn-cancel" onclick="closeModal()">キャンセル</button>
     </div>
   </div>
@@ -161,12 +221,25 @@
     const modalOverlay = document.getElementById('modal-overlay');
     const modalDateDisplay = document.getElementById('modal-date-display');
 
+    // 給与計算用の入力フィールド
+    const wageInput = document.getElementById('hourly-wage');
+    const dayHoursInput = document.getElementById('day-hours');
+    const nightHoursInput = document.getElementById('night-hours');
+    const alldayHoursInput = document.getElementById('allday-hours');
+    const salaryDisplay = document.getElementById('monthly-salary');
+
     let currentDate = new Date();
     let selectedDateKey = null;
 
-    // ★変更点①: ページを開いたときに保存されたデータを読み込む★
-    // localStorageにデータがあればそれを使い、無ければ空のオブジェクト {} を用意します。
+    // データの読み込み
     let shiftData = JSON.parse(localStorage.getItem('myShiftData')) || {};
+    let settingsData = JSON.parse(localStorage.getItem('myShiftSettings')) || {};
+
+    // 設定データの初期セット
+    if(settingsData.wage) wageInput.value = settingsData.wage;
+    if(settingsData.dayH) dayHoursInput.value = settingsData.dayH;
+    if(settingsData.nightH) nightHoursInput.value = settingsData.nightH;
+    if(settingsData.alldayH) alldayHoursInput.value = settingsData.alldayH;
 
     function renderCalendar(date) {
       calendarBody.innerHTML = '';
@@ -210,6 +283,9 @@
           } else if (shiftType === 'allday') {
             badge.textContent = '1日';
             badge.classList.add('shift-allday');
+          } else if (shiftType === 'off') {
+            badge.textContent = '休';
+            badge.classList.add('shift-off');
           }
           cell.appendChild(badge);
         }
@@ -222,6 +298,9 @@
         row.appendChild(document.createElement('td'));
       }
       calendarBody.appendChild(row);
+      
+      // カレンダーを描画するたびに給与を計算する
+      calculateSalary();
     }
 
     function openModal(dateKey, year, month, day) {
@@ -242,14 +321,50 @@
         delete shiftData[selectedDateKey];
       }
 
-      // ★変更点②: シフトを変更・消去した時に自動で保存する★
       localStorage.setItem('myShiftData', JSON.stringify(shiftData));
-
       closeModal();
       renderCalendar(currentDate);
     }
 
-    // テキストでコピーする処理
+    // ★追加: 給与計算処理★
+    function calculateSalary() {
+      const targetYear = currentDate.getFullYear();
+      const targetMonth = currentDate.getMonth() + 1;
+
+      const wage = parseInt(wageInput.value) || 0;
+      const dayH = parseFloat(dayHoursInput.value) || 0;
+      const nightH = parseFloat(nightHoursInput.value) || 0;
+      const alldayH = parseFloat(alldayHoursInput.value) || 0;
+
+      let totalHours = 0;
+
+      // 表示中の月のシフト時間を合計
+      for (const [dateKey, shiftType] of Object.entries(shiftData)) {
+        const [y, m, d] = dateKey.split('-').map(Number);
+        if (y === targetYear && m === targetMonth) {
+          if (shiftType === 'day') totalHours += dayH;
+          if (shiftType === 'night') totalHours += nightH;
+          if (shiftType === 'allday') totalHours += alldayH;
+        }
+      }
+
+      // 計算してカンマ区切りで表示
+      const expectedSalary = Math.floor(totalHours * wage);
+      salaryDisplay.textContent = expectedSalary.toLocaleString();
+
+      // 設定を保存
+      const currentSettings = { wage: wage, dayH: dayH, nightH: nightH, alldayH: alldayH };
+      localStorage.setItem('myShiftSettings', JSON.stringify(currentSettings));
+    }
+
+    // 入力値が変わったら再計算
+    wageInput.addEventListener('input', calculateSalary);
+    dayHoursInput.addEventListener('input', calculateSalary);
+    nightHoursInput.addEventListener('input', calculateSalary);
+    alldayHoursInput.addEventListener('input', calculateSalary);
+
+
+    // テキストでコピーする処理 (「休」を追加)
     document.getElementById('copy-btn').addEventListener('click', () => {
       const targetYear = currentDate.getFullYear();
       const targetMonth = currentDate.getMonth() + 1;
@@ -257,6 +372,7 @@
       let dayShifts = [];
       let nightShifts = [];
       let alldayShifts = [];
+      let offShifts = []; // 空けの配列
 
       for (const [dateKey, shiftType] of Object.entries(shiftData)) {
         const [y, m, d] = dateKey.split('-').map(Number);
@@ -265,17 +381,20 @@
           if (shiftType === 'day') dayShifts.push(d);
           if (shiftType === 'night') nightShifts.push(d);
           if (shiftType === 'allday') alldayShifts.push(d);
+          if (shiftType === 'off') offShifts.push(d);
         }
       }
 
       dayShifts.sort((a, b) => a - b);
       nightShifts.sort((a, b) => a - b);
       alldayShifts.sort((a, b) => a - b);
+      offShifts.sort((a, b) => a - b);
 
       let textParts = [];
       if (dayShifts.length > 0) textParts.push(`昼${dayShifts.join(',')}`);
       if (nightShifts.length > 0) textParts.push(`夜${nightShifts.join(',')}`);
       if (alldayShifts.length > 0) textParts.push(`1日${alldayShifts.join(',')}`);
+      if (offShifts.length > 0) textParts.push(`休${offShifts.join(',')}`); // 休を追加
 
       const resultText = textParts.join(' ');
 
